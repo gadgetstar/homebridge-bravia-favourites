@@ -1,0 +1,61 @@
+{
+  "pluginAlias": "BraviaFavourites",
+  "pluginType": "platform",
+  "pluginName": "Bravia Favourites",
+  "headerDisplay": "Sony Bravia TV platform plugin with a HomeKit channel selector driven by a favourites file. Uses Sony IP control with pre shared key.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "psk": {
+        "title": "Pre Shared Key",
+        "type": "string",
+        "required": true
+      },
+      "favouritesFile": {
+        "title": "Favourites File Path",
+        "type": "string",
+        "default": "/var/lib/homebridge/plugin-persist/bravia-favourites/favourites.txt"
+      },
+      "maxFavourites": {
+        "title": "Max favourites",
+        "type": "integer",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 50
+      },
+      "pollIntervalMs": {
+        "title": "Power poll interval (ms)",
+        "type": "integer",
+        "default": 5000,
+        "minimum": 1000,
+        "maximum": 60000
+      },
+      "debug": {
+        "title": "Debug logging",
+        "type": "boolean",
+        "default": false
+      },
+      "tvs": {
+        "title": "TVs",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "title": "Name", "type": "string", "required": true },
+            "ip": { "title": "IP Address", "type": "string", "required": true },
+            "port": { "title": "Port", "type": "integer", "default": 80 },
+            "tvsource": { "title": "TV source", "type": "string", "default": "tv:dvbt" }
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    "psk",
+    "favouritesFile",
+    "maxFavourites",
+    "pollIntervalMs",
+    "debug",
+    "tvs"
+  ]
+}
