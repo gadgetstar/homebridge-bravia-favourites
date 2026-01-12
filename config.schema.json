@@ -1,61 +1,100 @@
 {
   "pluginAlias": "BraviaFavourites",
   "pluginType": "platform",
-  "pluginName": "Bravia Favourites",
-  "headerDisplay": "Sony Bravia TV platform plugin with a HomeKit channel selector driven by a favourites file. Uses Sony IP control with pre shared key.",
+  "singular": true,
+  "headerDisplay": "Sony Bravia Favourites",
+  "footerDisplay": "Configure Sony XR-series TVs and favourites. Uses PSK authentication.",
   "schema": {
     "type": "object",
     "properties": {
+      "platform": { "type": "string", "const": "BraviaFavourites" },
+
       "psk": {
-        "title": "Pre Shared Key",
         "type": "string",
-        "required": true
+        "title": "Pre-Shared Key (PSK)",
+        "description": "PSK set on the TV (Network, Remote device settings).",
+        "minLength": 1
       },
+
       "favouritesFile": {
-        "title": "Favourites File Path",
         "type": "string",
+        "title": "Favourites file path",
         "default": "/var/lib/homebridge/plugin-persist/bravia-favourites/favourites.txt"
       },
-      "maxFavourites": {
-        "title": "Max favourites",
+
+      "channelPadLength": {
         "type": "integer",
-        "default": 30,
+        "title": "Channel pad length",
+        "default": 3,
         "minimum": 1,
-        "maximum": 50
+        "maximum": 6
       },
-      "pollIntervalMs": {
-        "title": "Power poll interval (ms)",
+      "channelPadChar": {
+        "type": "string",
+        "title": "Pad character",
+        "default": "0",
+        "minLength": 1,
+        "maxLength": 1
+      },
+      "digitDelayMs": {
         "type": "integer",
-        "default": 5000,
-        "minimum": 1000,
-        "maximum": 60000
+        "title": "Digit delay (ms)",
+        "default": 350,
+        "minimum": 0,
+        "maximum": 2000
       },
-      "debug": {
-        "title": "Debug logging",
+
+      "sendTvBeforeDigits": {
         "type": "boolean",
+        "title": "Send TV before digits",
+        "default": true
+      },
+      "sendOkAfterDigits": {
+        "type": "boolean",
+        "title": "Send OK after digits",
+        "default": true
+      },
+
+      "pollIntervalMs": {
+        "type": "integer",
+        "title": "Poll interval (ms)",
+        "default": 15000,
+        "minimum": 1000,
+        "maximum": 600000
+      },
+
+      "debug": {
+        "type": "boolean",
+        "title": "Debug logging",
         "default": false
       },
+
       "tvs": {
-        "title": "TVs",
         "type": "array",
+        "title": "TVs",
         "items": {
           "type": "object",
+          "required": ["name", "ip"],
           "properties": {
-            "name": { "title": "Name", "type": "string", "required": true },
-            "ip": { "title": "IP Address", "type": "string", "required": true },
-            "port": { "title": "Port", "type": "integer", "default": 80 },
-            "tvsource": { "title": "TV source", "type": "string", "default": "tv:dvbt" }
+            "name": { "type": "string", "title": "Name", "minLength": 1 },
+            "ip": { "type": "string", "title": "IP address", "minLength": 1 },
+            "port": {
+              "type": "integer",
+              "title": "Port",
+              "default": 80,
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "tvSource": {
+              "type": "string",
+              "title": "TV source URI",
+              "default": "tv:dvbt",
+              "description": "UK Freeview is typically tv:dvbt"
+            }
           }
         }
       }
-    }
-  },
-  "layout": [
-    "psk",
-    "favouritesFile",
-    "maxFavourites",
-    "pollIntervalMs",
-    "debug",
-    "tvs"
-  ]
+    },
+    "required": ["psk", "tvs"]
+  }
 }
