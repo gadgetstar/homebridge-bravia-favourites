@@ -85,7 +85,7 @@
               "minimum": 1,
               "maximum": 65535
             },
-            "tvSource": {
+            "tvsource": {
               "type": "string",
               "title": "TV source URI",
               "default": "tv:dvbt",
