@@ -113,6 +113,11 @@ ITV1=3
 Channel 4=4
 Channel 5=5
 BBC News=231
+ITV2=6
+ITV3=10
+Film4=14
+Dave=19
+5USA-21
 `;
         fs.writeFileSync(this.favouritesFile, starter, 'utf8');
         this.log(`[BraviaFavourites] Created starter favourites file at ${this.favouritesFile}`);
