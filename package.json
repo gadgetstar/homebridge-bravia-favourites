@@ -1,8 +1,12 @@
 {
   "name": "homebridge-bravia-favourites",
   "version": "1.0.0",
+  "displayName": "Sony Bravia Favourites",
   "description": "Homebridge platform plugin to expose Sony Bravia TVs with a HomeKit channel selector based on a favourites file",
   "main": "index.js",
+  "platforms": [
+    "BraviaFavourites"
+  ],
   "keywords": [
     "homebridge-plugin",
     "homebridge",
