@@ -4,7 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-let Accessory, Service, Characteristic, UUIDGen;
+let PlatformAccessory, Service, Characteristic, UUIDGen;
 
 class BraviaFavouritesPlatform {
   constructor(log, config, api) {
@@ -15,9 +15,13 @@ class BraviaFavouritesPlatform {
     this.debug = !!this.config.debug;
 
     this.psk = this.config.psk || '';
-    this.favouritesFile = this.config.favouritesFile || '/var/lib/homebridge/plugin-persist/bravia-favourites/favourites.txt';
+    this.favouritesFile =
+      this.config.favouritesFile ||
+      '/var/lib/homebridge/plugin-persist/bravia-favourites/favourites.txt';
 
-    this.pollIntervalMs = Number.isFinite(this.config.pollIntervalMs) ? this.config.pollIntervalMs : 5000;
+    this.pollIntervalMs = Number.isFinite(this.config.pollIntervalMs)
+      ? this.config.pollIntervalMs
+      : 5000;
 
     this.tvs = Array.isArray(this.config.tvs) ? this.config.tvs : [];
 
@@ -34,7 +38,7 @@ class BraviaFavouritesPlatform {
       return;
     }
 
-    api.on('didFinishLaunching', () => {
+    this.api.on('didFinishLaunching', () => {
       this.ensureFavouritesFile();
       const favourites = this.loadFavourites();
 
@@ -51,16 +55,26 @@ class BraviaFavouritesPlatform {
         if (cachedAccessory) {
           cachedAccessory.context.tvCfg = tvCfg;
           cachedAccessory.context.favourites = favourites;
+
+          // Do not create or remove services here, do it inside the controller constructor.
           this.api.updatePlatformAccessories([cachedAccessory]);
           new BraviaTvController(this, tvCfg, favourites, cachedAccessory);
         } else {
-          const accessory = new Accessory(tvCfg.name, uuid, this.api.hap.Categories.TELEVISION);
+          // IMPORTANT: Create a PlatformAccessory with exactly (name, uuid). Do not pass a category param.
+          const accessory = new PlatformAccessory(tvCfg.name, uuid);
+          accessory.category = this.api.hap.Categories.TELEVISION;
+
           accessory.context.tvCfg = tvCfg;
           accessory.context.favourites = favourites;
 
           new BraviaTvController(this, tvCfg, favourites, accessory);
 
-          this.api.registerPlatformAccessories('homebridge-bravia-favourites', 'BraviaFavourites', [accessory]);
+          this.api.registerPlatformAccessories(
+            'homebridge-bravia-favourites',
+            'BraviaFavourites',
+            [accessory]
+          );
+
           this.log(`[BraviaFavourites] Registered new accessory: ${tvCfg.name}`);
         }
       }
@@ -72,7 +86,11 @@ class BraviaFavouritesPlatform {
       }
       if (stale.length) {
         this.log(`[BraviaFavourites] Removing ${stale.length} stale accessory(ies)`);
-        this.api.unregisterPlatformAccessories('homebridge-bravia-favourites', 'BraviaFavourites', stale);
+        this.api.unregisterPlatformAccessories(
+          'homebridge-bravia-favourites',
+          'BraviaFavourites',
+          stale
+        );
       }
     });
   }
@@ -144,7 +162,7 @@ class BraviaTvController {
     this.ip = tvCfg.ip;
     this.port = tvCfg.port || 80;
 
-    // UK Freeview
+    // UK Freeview default
     this.tvsource = tvCfg.tvsource || 'tv:dvbt';
 
     this.psk = platform.psk;
@@ -159,33 +177,68 @@ class BraviaTvController {
     this.channelUriByNumber = new Map();
     this.lastChannelMapMs = 0;
 
+    this.powerPollTimeout = null;
+    this.channelMapTimeout = null;
+    this.channelMapInterval = null;
+
     this.buildServices();
     this.startPollingPower();
 
     // Build URI map early, then refresh periodically
-    setTimeout(() => this.refreshChannelMap().catch(() => {}), 2000);
-    setInterval(() => this.refreshChannelMap().catch(() => {}), 6 * 60 * 60 * 1000);
+    this.channelMapTimeout = setTimeout(() => this.refreshChannelMap().catch(() => {}), 2000);
+    this.channelMapInterval = setInterval(() => this.refreshChannelMap().catch(() => {}), 6 * 60 * 60 * 1000);
+
+    // Cleanup on shutdown to avoid orphan timers across reloads
+    if (this.platform.api) {
+      this.platform.api.on('shutdown', () => {
+        try {
+          if (this.powerPollTimeout) clearTimeout(this.powerPollTimeout);
+          if (this.channelMapTimeout) clearTimeout(this.channelMapTimeout);
+          if (this.channelMapInterval) clearInterval(this.channelMapInterval);
+        } catch (_) {}
+      });
+    }
   }
 
   buildServices() {
-    // Remove everything except AccessoryInformation
+    // Remove everything except AccessoryInformation (match by UUID, not displayName)
+    const infoUUID = Service.AccessoryInformation.UUID;
     for (const s of [...this.accessory.services]) {
-      if (s.displayName === 'AccessoryInformation') continue;
+      if (s.UUID === infoUUID) continue;
       try { this.accessory.removeService(s); } catch (_) {}
     }
 
-    this.tvService = new Service.Television(this.name);
+    // Create or reuse Television service
+    this.tvService =
+      this.accessory.getService(Service.Television) ||
+      this.accessory.addService(Service.Television, this.name);
+
     this.tvService
       .setCharacteristic(Characteristic.ConfiguredName, this.name)
       .setCharacteristic(Characteristic.Name, this.name)
-      .setCharacteristic(Characteristic.SleepDiscoveryMode, Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE);
+      .setCharacteristic(
+        Characteristic.SleepDiscoveryMode,
+        Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
+      );
 
+    // Clear existing linked services (helps keep cache stable if favourites change)
+    try {
+      const linked = this.tvService.linkedServices || [];
+      for (const ls of linked) {
+        try { this.tvService.removeLinkedService(ls); } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Wire characteristics
     this.tvService.getCharacteristic(Characteristic.Active)
       .on('get', cb => cb(null, this.power ? 1 : 0))
       .on('set', (value, cb) => {
         this.setPower(!!value)
           .then(() => cb(null))
-          .catch(err => { this.log(`[BraviaFavourites] ${this.name} setPower error: ${err.message || err}`); cb(null); });
+          .catch(err => {
+            this.log(`[BraviaFavourites] ${this.name} setPower error: ${err.message || err}`);
+            cb(null);
+          });
       });
 
     this.tvService.getCharacteristic(Characteristic.ActiveIdentifier)
@@ -193,7 +246,10 @@ class BraviaTvController {
       .on('set', (identifier, cb) => {
         this.selectIdentifier(identifier)
           .then(() => cb(null))
-          .catch(err => { this.log(`[BraviaFavourites] ${this.name} selectIdentifier error: ${err.message || err}`); cb(null); });
+          .catch(err => {
+            this.log(`[BraviaFavourites] ${this.name} selectIdentifier error: ${err.message || err}`);
+            cb(null);
+          });
       });
 
     this.identifierToChannel = new Map();
@@ -205,8 +261,12 @@ class BraviaTvController {
       const identifier = Number(fav.number);
       if (!Number.isFinite(identifier) || identifier <= 0 || identifier > 999) continue;
 
-      const subtype = `fav:${fav.number}:${fav.name}`;
-      const input = new Service.InputSource(fav.name, subtype);
+      // Keep subtype stable even if the display name changes
+      const subtype = `fav:${fav.number}`;
+
+      const input =
+        this.accessory.getServiceById(Service.InputSource, subtype) ||
+        this.accessory.addService(Service.InputSource, fav.name, subtype);
 
       input
         .setCharacteristic(Characteristic.Identifier, identifier)
@@ -217,12 +277,10 @@ class BraviaTvController {
         .setCharacteristic(Characteristic.InputSourceType, Characteristic.InputSourceType.TUNER);
 
       this.tvService.addLinkedService(input);
+
       this.inputServices.push(input);
       this.identifierToChannel.set(identifier, fav.number);
     }
-
-    this.accessory.addService(this.tvService);
-    for (const s of this.inputServices) this.accessory.addService(s);
 
     if (this.debug) {
       this.log(`[BraviaFavourites] ${this.name} loaded ${this.inputServices.length} favourites into HomeKit inputs`);
@@ -242,11 +300,11 @@ class BraviaTvController {
       } catch (e) {
         if (this.debug) this.log(`[BraviaFavourites] ${this.name} power poll error: ${e.message || e}`);
       } finally {
-        setTimeout(poll, this.pollIntervalMs);
+        this.powerPollTimeout = setTimeout(poll, this.pollIntervalMs);
       }
     };
 
-    poll();
+    poll().catch(() => {});
   }
 
   async setPower(on) {
@@ -293,7 +351,6 @@ class BraviaTvController {
       return;
     }
 
-    // Try to infer channel number from dispNum, title, uri patterns
     const newMap = new Map();
 
     for (const item of list) {
@@ -384,7 +441,7 @@ class BraviaTvController {
       const req = http.request(options, res => {
         let data = '';
         res.setEncoding('utf8');
-        res.on('data', chunk => data += chunk);
+        res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
           if (res.statusCode && res.statusCode >= 400) {
             return reject(new Error(`HTTP ${res.statusCode} for ${pathname}: ${data.slice(0, 200)}`));
@@ -400,10 +457,14 @@ class BraviaTvController {
 }
 
 module.exports = (homebridge) => {
-  Accessory = homebridge.platformAccessory;
+  PlatformAccessory = homebridge.platformAccessory;
   Service = homebridge.hap.Service;
   Characteristic = homebridge.hap.Characteristic;
   UUIDGen = homebridge.hap.uuid;
 
-  homebridge.registerPlatform('homebridge-bravia-favourites', 'BraviaFavourites', BraviaFavouritesPlatform);
+  homebridge.registerPlatform(
+    'homebridge-bravia-favourites',
+    'BraviaFavourites',
+    BraviaFavouritesPlatform
+  );
 };
